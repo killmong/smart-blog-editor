@@ -9,25 +9,36 @@ from fastapi.security import OAuth2PasswordBearer
 from typing import Dict, Any, Optional, List
 import os
 from google import genai
-
+from dotenv import load_dotenv 
 # 1. INITIALIZATION
+load_dotenv()  
+
 app = FastAPI(title="Smart Blog Editor API")
 
 # 2. CORS SETUP
 app.add_middleware(
     CORSMiddleware,
-    allow_origins=["*"], # In production, replace with your frontend URL
+    allow_origins=["*"], 
     allow_credentials=True,
     allow_methods=["*"],
     allow_headers=["*"],
 )
 
 # 3. CONFIGURATION
-SECRET_KEY = os.getenv("SECRET_KEY", "$92940234$%@") 
+
+# Fetch variables from the environment
+SECRET_KEY = os.getenv("SECRET_KEY")
+MONGO_URL = os.getenv("MONGO_URL")
+GEMINI_API_KEY = os.getenv("GEMINI_API_KEY")
+
+# Optional: Add checks to ensure keys exist
+if not MONGO_URL or not GEMINI_API_KEY:
+    raise RuntimeError("Missing required environment variables (MONGO_URL or GEMINI_API_KEY)")
+
 ALGORITHM = "HS256"
 ACCESS_TOKEN_EXPIRE_MINUTES = 60
 
-MONGO_URL = "mongodb+srv://sharmanikhil87841:Airmarshall90@cluster0.yhj3pnh.mongodb.net/?appName=Cluster0"
+# Initialize Clients using the Env Variables
 client = AsyncIOMotorClient(MONGO_URL)
 db = client.blog_editor 
 posts_collection = db.posts
@@ -36,7 +47,6 @@ users_collection = db.users
 pwd_context = CryptContext(schemes=["argon2"], deprecated="auto")
 oauth2_scheme = OAuth2PasswordBearer(tokenUrl="api/login")
 
-GEMINI_API_KEY = os.getenv("GEMINI_API_KEY", "AIzaSyDPeXN98S-4SvCGDWIPNgd9QOApusLOyAA")
 genai_client = genai.Client(api_key=GEMINI_API_KEY)
 
 class User(BaseModel):
@@ -113,7 +123,6 @@ async def login(user: User):
 
 # 7. BLOG POST ENDPOINTS
 
-
 @app.post("/api/posts/")
 async def create_post(post: PostSchema, current_user: str = Depends(get_current_user)):
     post_data = post.model_dump()
@@ -127,6 +136,7 @@ async def create_post(post: PostSchema, current_user: str = Depends(get_current_
         upsert=True
     )
     return {"message": "Draft saved", "id": post_data["_id"]}
+
 @app.patch("/api/posts/{post_id}")
 async def update_post(
     post_id: str,
@@ -177,9 +187,11 @@ async def generate_summary(request: AIRequest, current_user: str = Depends(get_c
         )
         return {"summary": response.text or "Could not generate summary."}
     except Exception as e:
+        # In production, it's useful to print 'e' to logs to debug
+        print(f"AI Error: {e}") 
         raise HTTPException(status_code=500, detail="AI Service Error")
 
-# 9. GET USER POSTS (Bonus for Sidebar)
+# 9. GET USER POSTS
 @app.get("/api/posts/", response_model=List[Dict[str, Any]])
 async def get_user_posts(current_user: str = Depends(get_current_user)):
     cursor = posts_collection.find({"author": current_user})
